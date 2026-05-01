@@ -1,0 +1,7 @@
+Natural language processing (NLP) is a machine learning technology
+that gives computers the ability to interpret, manipulate, and comprehend
+human language. Organizations today have huge volumes of voice and
+text data from various communication channels like emails, text messages,
+social media newsfeeds, video, audio, and more. They use NLP software
+to automatically process this data. Machine learning and artificial
+intelligence are changing the way computers understand human language.
