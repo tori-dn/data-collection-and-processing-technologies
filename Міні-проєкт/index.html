@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Агент аналізу ефективності курсу</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg:        #0b0e17;
+  --surface:   #111827;
+  --surface2:  #1a2236;
+  --border:    #1f2d45;
+  --accent:    #3b82f6;
+  --accent2:   #6366f1;
+  --green:     #10b981;
+  --yellow:    #f59e0b;
+  --red:       #ef4444;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --font:      'Syne', sans-serif;
+  --mono:      'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(59,130,246,.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99,102,241,.10) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Header */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 32px; border-bottom: 1px solid var(--border);
+  background: rgba(11,14,23,.85); backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-icon {
+  width: 36px; height: 36px; border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+}
+.logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+.logo span { font-size: 11px; color: var(--muted); font-weight: 400; display: block; margin-top: 1px; }
+
+.gemini-badge {
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--surface2); font-size: 12px; color: var(--muted);
+}
+.gemini-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+
+.main { display: grid; grid-template-columns: 300px 1fr; gap: 0; flex: 1; }
+
+.sidebar {
+  background: var(--surface); border-right: 1px solid var(--border);
+  padding: 24px 20px; display: flex; flex-direction: column; gap: 20px;
+}
+.sidebar-section h3 { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: 12px; padding: 20px; text-align: center;
+  cursor: pointer; transition: border-color .2s, background .2s; position: relative;
+}
+.upload-zone:hover { border-color: var(--accent); background: rgba(59,130,246,.05); }
+.upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-zone .icon { font-size: 28px; margin-bottom: 8px; }
+.upload-zone p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.upload-zone .filename { font-size: 11px; color: var(--accent); margin-top: 6px; font-family: var(--mono); }
+
+.btn {
+  width: 100%; padding: 12px; border: none; border-radius: 10px;
+  font-family: var(--font); font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(59,130,246,.35); }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+.spinner { display: none; }
+.spinner.active {
+  display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3);
+  border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.history-list { display: flex; flex-direction: column; gap: 6px; }
+.history-item {
+  padding: 10px 12px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border);
+  cursor: pointer; transition: border-color .15s;
+}
+.history-item:hover { border-color: var(--accent); }
+.history-item .ts { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.history-item .grade { font-size: 13px; font-weight: 600; }
+.delta-up { color: var(--green); }
+.delta-down { color: var(--red); }
+.delta-neutral { color: var(--muted); }
+
+.content { padding: 28px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+.tab-btn {
+  padding: 10px 18px; border: none; background: none; font-family: var(--font); font-size: 13px; font-weight: 600;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .2s, border-color .2s;
+}
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+
+.tab-panel { display: none; }
+.tab-panel.active { display: flex; flex-direction: column; gap: 24px; }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; transition: border-color .2s; }
+.kpi-card:hover { border-color: var(--accent); }
+.kpi-label { font-size: 11px; color: var(--muted); letter-spacing: .5px; margin-bottom: 8px; }
+.kpi-value { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+.kpi-sub { font-size: 11px; color: var(--muted); }
+.kpi-accent  { color: var(--accent); }
+.kpi-green   { color: var(--green); }
+.kpi-yellow  { color: var(--yellow); }
+.kpi-red     { color: var(--red); }
+
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+.chart-card h4 { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 16px; letter-spacing: .3px; }
+.chart-wrap { position: relative; height: 220px; }
+
+.corr-matrix { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 8px; }
+.corr-cell { border-radius: 8px; padding: 10px 6px; text-align: center; font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.corr-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; font-family: var(--font); }
+
+.risk-table { width: 100%; border-collapse: collapse; }
+.risk-table th { text-align: left; padding: 10px 14px; font-size: 11px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+.risk-table td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid rgba(31,45,69,.5); }
+.risk-tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.tag-red { background: rgba(239,68,68,.15); color: var(--red); }
+.tag-yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+.tag-green { background: rgba(16,185,129,.15); color: var(--green); }
+
+.report-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; font-family: var(--mono); max-height: 600px; overflow-y: auto; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+.empty-state .e-icon { font-size: 40px; margin-bottom: 12px; }
+
+.dynamics-banner { display: flex; gap: 14px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; }
+.dyn-item { display: flex; flex-direction: column; gap: 2px; }
+.dyn-label { font-size: 10px; color: var(--muted); letter-spacing: .5px; }
+.dyn-val { font-size: 15px; font-weight: 700; }
+
+/* МОДАЛЬНЕ ВІКНО РЕДАКТОРА */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
+  z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+}
+.modal-window {
+  background: var(--surface); border: 1px solid var(--border); width: 650px;
+  max-height: 85vh; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.modal-header h3 { font-size: 15px; color: var(--accent); }
+.modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; background: var(--surface2); }
+.editor-table { width: 100%; border-collapse: collapse; font-family: var(--font); text-align: left; font-size: 13px; }
+.editor-table th { padding: 10px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.editor-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.editor-table input {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  padding: 6px; width: 100%; font-family: var(--mono); border-radius: 6px; text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="modal-overlay" id="editorModal">
+  <div class="modal-window">
+    <div class="modal-header">
+      <h3>✏️ Інтерактивний редактор метрик курсу</h3>
+      <button class="btn btn-outline" style="width:auto; padding: 6px 12px;" onclick="closeEditor()">✕</button>
+    </div>
+    <div class="modal-body">
+      <table class="editor-table">
+        <thead>
+          <tr><th>Студент</th><th>Тиждень</th><th>Відвідуваність (0/1)</th><th>Оцінка (0-100)</th></tr>
+        </thead>
+        <tbody id="modalTableBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" style="width:auto;" onclick="closeEditor()">Скасувати</button>
+      <button class="btn btn-primary" style="width:auto;" onclick="saveEditorChanges()">Зберегти зміни</button>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+<header>
+  <div class="logo">
+    <div class="logo-icon">📊</div>
+    <div>
+      <h1>Агент аналізу ефективності курсу</h1>
+    </div>
+  </div>
+  <div class="gemini-badge"><div class="gemini-dot"></div><span>Автономний Smart Режим</span></div>
+</header>
+
+<div class="main">
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h3>Джерело даних</h3>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="csvFile" accept=".csv" onchange="handleFileLoad(this)"/>
+        <div class="icon">📁</div>
+        <p>Завантажте CSV файл<br>або використайте демо-дані</p>
+        <div class="filename" id="fileName">course_data.csv (демо)</div>
+      </div>
+      <button class="btn btn-outline" style="margin-top: 10px; padding: 8px;" onclick="openEditor()">✏️ Змінити дані</button>
+    </div>
+
+    <div class="sidebar-section">
+      <button class="btn btn-primary" id="analyzeBtn" onclick="runAnalysis()">
+        <span class="spinner" id="spinner"></span>
+        <span id="btnText">🔍 Запустити аналіз</span>
+      </button>
+      <br>
+      <button class="btn btn-outline" onclick="loadHistory()">📜 Завантажити історію</button>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>Історія аналізів</h3>
+      <div class="history-list" id="historyList">
+        <div style="font-size:12px;color:var(--muted);">Натисніть «Завантажити історію»</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Дашборд</button>
+      <button class="tab-btn" onclick="switchTab('report')">🤖 AI Аналітичний звіт</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-dashboard">
+      <div id="dynamicsBanner" style="display:none" class="dynamics-banner"></div>
+
+      <div class="kpi-grid" id="kpiGrid">
+        <div class="kpi-card"><div class="kpi-label">СТУДЕНТІВ</div><div class="kpi-value kpi-accent" id="kpi-students">—</div><div class="kpi-sub">загалом</div></div>
+        <div class="kpi-card"><div class="kpi-label">ВІДВІДУВАНІСТЬ</div><div class="kpi-value kpi-green" id="kpi-att">—</div><div class="kpi-sub">середнє</div></div>
+        <div class="kpi-card"><div class="kpi-label">СЕРЕДНЯ ОЦІНКА</div><div class="kpi-value kpi-yellow" id="kpi-grade">—</div><div class="kpi-sub">балів</div></div>
+        <div class="kpi-card"><div class="kpi-label">ЗОНА РИЗИКУ</div><div class="kpi-value kpi-red" id="kpi-risk">—</div><div class="kpi-sub">студентів</div></div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card"><h4>📈 Оцінки по тижнях</h4><div class="chart-wrap"><canvas id="gradeChart"></canvas></div></div>
+        <div class="chart-card"><h4>📅 Відвідуваність по тижнях</h4><div class="chart-wrap"><canvas id="attChart"></canvas></div></div>
+        <div class="chart-card"><h4>😊 Задоволеність студентів</h4><div class="chart-wrap"><canvas id="feedChart"></canvas></div></div>
+        <div class="chart-card"><h4>🔗 Кореляційна матриця</h4><div id="corrMatrix"></div></div>
+      </div>
+
+      <div class="chart-card"><h4>⚠️ Студенти в зоні ризику</h4><div id="riskTable"></div></div>
+    </div>
+
+    <div class="tab-panel" id="tab-report"><div id="reportBox" class="report-box"><div class="empty-state"><div class="e-icon">🤖</div>Запустіть аналіз, щоб сформувати динамічний звіт</div></div></div>
+  </div>
+</div>
+</div>
+
+<script>
+const API = 'http://127.0.0.1:5001/api';
+let gradeChart, attChart, feedChart;
+let workingDataset = [];
+
+/* НОВИЙ ВЕЛИКИЙ ДАТАСЕТ З 15 СТУДЕНТАМИ І 5 ТИЖНЯМИ */
+const defaultDemoData = `student_id,student_name,week,attendance,grade,feedback_score,assignment_score,feedback_text
+1,Олена Коваль,1,1,85,4,88,"Ок"
+1,Олена Коваль,2,1,90,5,92,"Чудово"
+1,Олена Коваль,3,1,80,4,85,"Норм"
+1,Олена Коваль,4,1,88,4,90,"Добре"
+1,Олена Коваль,5,1,92,5,95,"Супер"
+2,Михайло Бондар,1,1,70,3,72,"Важко"
+2,Михайло Бондар,2,0,0,2,60,"Пропуск"
+2,Михайло Бондар,3,1,65,3,68,"Ок"
+2,Михайло Бондар,4,1,75,4,78,"Добре"
+2,Михайло Бондар,5,1,80,4,82,"Супер"
+3,Тетяна Мельник,1,1,95,5,97,"Відмінно"
+3,Тетяна Мельник,2,1,93,5,96,"Супер"
+3,Тетяна Мельник,3,1,91,5,94,"Чудово"
+3,Тетяна Мельник,4,1,94,5,98,"Прекрасно"
+3,Тетяна Мельник,5,1,96,5,99,"Ідеально"
+4,Іван Шевченко,1,1,60,2,62,"Складно"
+4,Іван Шевченко,2,1,55,2,58,"Важко"
+4,Іван Шевченко,3,0,0,1,40,"Пропуск"
+4,Іван Шевченко,4,1,65,3,67,"Норм"
+4,Іван Шевченко,5,0,0,2,50,"Пропуск"
+5,Наталія Ткач,1,1,78,4,80,"Добре"
+5,Наталія Ткач,2,1,82,4,84,"Норм"
+5,Наталія Ткач,3,1,80,4,83,"Ок"
+5,Наталія Ткач,4,1,81,4,82,"Добре"
+5,Наталія Ткач,5,1,85,4,87,"Чудово"
+6,Олексій Кравченко,1,1,72,3,74,"Норм"
+6,Олексій Кравченко,2,1,75,3,77,"Ок"
+6,Олексій Кравченко,3,1,70,3,72,"Добре"
+6,Олексій Кравченко,4,1,74,3,75,"Норм"
+6,Олексій Кравченко,5,1,78,4,80,"Чудово"
+7,Юлія Петренко,1,1,88,4,90,"Добре"
+7,Юлія Петренко,2,1,91,5,93,"Супер"
+7,Юлія Петренко,3,1,89,5,92,"Чудово"
+7,Юлія Петренко,4,1,90,5,91,"Прекрасно"
+7,Юлія Петренко,5,1,92,5,94,"Ідеально"
+8,Андрій Лисенко,1,1,62,3,65,"Важко"
+8,Андрій Lисенко,2,0,0,2,50,"Пропуск"
+8,Андрій Лисенко,3,0,0,2,45,"Пропуск"
+8,Андрій Лисенко,4,1,68,3,70,"Норм"
+8,Андрій Лисенко,5,1,72,3,74,"Ок"
+9,Вікторія Нікіфорова,1,1,84,4,86,"Добре"
+9,Вікторія Нікіфорова,2,1,87,4,89,"Чудово"
+9,Вікторія Нікіфорова,3,1,85,4,88,"Норм"
+9,Вікторія Нікіфорова,4,1,89,5,91,"Супер"
+9,Вікторія Нікіфорова,5,1,90,5,92,"Прекрасно"
+10,Дмитро Сидоренко,1,1,73,3,75,"Ок"
+10,Дмитро Сидоренко,2,1,76,4,78,"Норм"
+10,Дмитро Сидоренко,3,1,74,3,76,"Добре"
+10,Дмитро Сидоренко,4,1,79,4,81,"Ок"
+10,Дмитро Сидоренко,5,1,82,4,84,"Чудово"
+11,Сергій Поліщук,1,1,92,5,94,"Супер"
+11,Сергій Поліщук,2,1,95,5,96,"Прекрасно"
+11,Сергій Поліщук,3,1,90,4,91,"Чудово"
+11,Сергій Поліщук,4,1,93,5,95,"Ідеально"
+11,Сергій Поліщук,5,1,94,5,96,"Відмінно"
+12,Марія Костюк,1,1,80,4,82,"Добре"
+12,Марія Костюк,2,1,83,4,85,"Ок"
+12,Марія Костюк,3,1,82,4,84,"Норм"
+12,Марія Костюк,4,1,85,4,88,"Добре"
+12,Марія Костюк,5,1,87,4,89,"Чудово"
+13,Артем Мороз,1,0,0,1,30,"Пропуск"
+14,Ольга Романенко,1,1,75,4,78,"Норм"
+14,Ольга Романенко,2,1,78,4,81,"Добре"
+14,Ольга Романенко,3,1,77,3,79,"Ок"
+14,Ольга Романенко,4,1,81,4,83,"Норм"
+14,Ольга Романенко,5,1,84,4,86,"Чудово"
+15,Ярослав Козак,1,1,65,3,68,"Важко"
+15,Ярослав Козак,2,1,68,3,70,"Ок"
+15,Ярослав Козак,3,1,70,4,72,"Норм"
+15,Ярослав Козак,4,1,72,4,75,"Добре"
+15,Ярослав Козак,5,1,75,4,78,"Чудово"`;
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', ['dashboard','report'][i] === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+function parseCSV(text) {
+  const lines = text.split('\n').filter(l => l.trim() !== '');
+  const headers = lines[0].split(',').map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const values = line.match(/(".*?"|[^,]+)/g).map(v => v.replace(/^"|"$/g, '').trim());
+    const obj = {}; headers.forEach((h, i) => { obj[h] = values[i]; }); return obj;
+  });
+}
+
+function compileToCSV(arr) {
+  if(!arr.length) return '';
+  const headers = Object.keys(arr[0]).join(',');
+  const rows = arr.map(obj => Object.values(obj).map(v => typeof v === 'string' && v.includes(',') ? `"${v}"` : v).join(','));
+  return [headers, ...rows].join('\n');
+}
+
+function handleFileLoad(input) {
+  const file = input.files[0]; if (!file) return;
+  document.getElementById('fileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) { workingDataset = parseCSV(e.target.result); };
+  reader.readAsText(file);
+}
+
+function openEditor() {
+  const tbody = document.getElementById('modalTableBody'); tbody.innerHTML = '';
+  workingDataset.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><b>${row.student_name}</b></td><td>Тиждень ${row.week}</td><td><input type="number" min="0" max="1" id="edit-att-${i}" value="${row.attendance}"></td><td><input type="number" min="0" max="100" id="edit-grade-${i}" value="${row.grade}"></td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('editorModal').style.display = 'flex';
+}
+
+function closeEditor() { document.getElementById('editorModal').style.display = 'none'; }
+
+function saveEditorChanges() {
+  workingDataset.forEach((row, i) => {
+    const attVal = document.getElementById(`edit-att-${i}`).value;
+    const gradeVal = document.getElementById(`edit-grade-${i}`).value;
+    row.attendance = attVal; row.grade = gradeVal;
+    if(attVal === '0') { row.grade = '0'; row.assignment_score = '0'; }
+  });
+  closeEditor();
+}
+
+async function runAnalysis() {
+  const btn = document.getElementById('analyzeBtn');
+  const spinner = document.getElementById('spinner');
+  const btnText = document.getElementById('btnText');
+  btn.disabled = true; spinner.classList.add('active'); btnText.textContent = 'Аналізую...';
+
+  try {
+    const csvContent = compileToCSV(workingDataset);
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const formData = new FormData(); formData.append('file', blob, 'course_data.csv');
+
+    const res = await fetch(`${API}/analyze`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    renderKPI(data.analytics.overall); renderCharts(data.analytics.weekly); renderCorrelation(data.analytics.correlations); renderRiskTable(data.analytics.at_risk_students); renderReport(data.ai_report);
+    if (data.dynamics) renderDynamics(data.dynamics);
+    switchTab('dashboard');
+  } catch (err) { alert('Помилка: ' + err.message); }
+  finally { btn.disabled = false; spinner.classList.remove('active'); btnText.textContent = '🔍 Запустити аналіз'; }
+}
+
+function renderKPI(o) {
+  document.getElementById('kpi-students').textContent = o.total_students;
+  document.getElementById('kpi-att').textContent = o.avg_attendance_rate + '%';
+  document.getElementById('kpi-grade').textContent = o.avg_grade;
+  document.getElementById('kpi-risk').textContent = o.at_risk_count;
+}
+
+function renderDynamics(d) {
+  const fmt = (v, unit='') => { const sign = v > 0 ? '+' : ''; const cls = v > 0 ? 'delta-up' : v < 0 ? 'delta-down' : 'delta-neutral'; return `<span class="${cls}">${sign}${v}${unit}</span>`; };
+  const banner = document.getElementById('dynamicsBanner'); banner.style.display = 'flex';
+  banner.innerHTML = `<div style="font-size:11px;color:var(--muted);align-self:center;margin-right:8px;">📈 Динаміка vs ${d.previous_date}:</div><div class="dyn-item"><div class="dyn-label">ОЦІНКА</div><div class="dyn-val">${fmt(d.grade_delta)}</div></div><div class="dyn-item"><div class="dyn-label">ВІДВІДУВАНІСТЬ</div><div class="dyn-val">${fmt(d.attendance_delta,'%')}</div></div><div class="dyn-item"><div class="dyn-label">РИЗИКИ</div><div class="dyn-val">${fmt(d.at_risk_delta,' ос.')}</div></div>`;
+}
+
+function renderCharts(weekly) {
+  const weeks = weekly.map(w => 'Тиждень ' + w.week);
+  const feeds = weekly.map(w => w.avg_feedback);
+  const chartConfig = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(31,45,69,.5)' }, ticks: { color: '#64748b', font: { family: 'Syne', size: 11 } } }, y: { grid: { color: 'rgba(31,45,69,.5)' }, ticks: { color: '#64748b', font: { family: 'Syne', size: 11 } } } } };
+
+  if (gradeChart) gradeChart.destroy();
+  gradeChart = new Chart(document.getElementById('gradeChart'), { type: 'line', data: { labels: weeks, datasets: [{ data: weekly.map(w => w.avg_grade), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', borderWidth: 2.5, pointRadius: 5, fill: true }] }, options: { ...chartConfig, scales: { ...chartConfig.scales, y: { min: 40, max: 100 } } } });
+
+  if (attChart) attChart.destroy();
+  attChart = new Chart(document.getElementById('attChart'), { type: 'bar', data: { labels: weeks, datasets: [{ data: weekly.map(w => w.attendance_rate), backgroundColor: 'rgba(99,102,241,.7)', borderRadius: 6 }] }, options: { ...chartConfig, scales: { ...chartConfig.scales, y: { min: 0, max: 100 } } } });
+
+  if (feedChart) feedChart.destroy();
+  feedChart = new Chart(document.getElementById('feedChart'), {
+    type: 'line',
+    data: {
+      labels: weeks,
+      datasets: [{ label: 'Рівень задоволеності', data: feeds, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.1)', borderWidth: 3, pointRadius: 6, pointBackgroundColor: '#6366f1', tension: 0.3, fill: true }]
+    },
+    options: { ...chartConfig, scales: { ...chartConfig.scales, y: { min: 0, max: 5, grid: { color: 'rgba(31,45,69,.4)' }, ticks: { stepSize: 1, color: '#64748b', font: { family: 'Syne', size: 11 } } } } }
+  });
+}
+
+function renderCorrelation(corr) {
+  const fields = ['attendance', 'grade', 'feedback_score', 'assignment_score'];
+  const labels = ['Відвід.', 'Оцінка', 'Відгук', 'Завдан.'];
+  let html = '<div class="corr-matrix">';
+  fields.forEach((r, ri) => { fields.forEach((c, ci) => { const val = corr[r]?.[c] ?? 0; const abs = Math.abs(val); const hue = val > 0 ? `rgba(59,130,246,${abs*.7+.1})` : `rgba(239,68,68,${abs*.7+.1})`; html += `<div class="corr-cell" style="background:${hue}"><div class="corr-label">${labels[ri]}↔${labels[ci]}</div>${val.toFixed(2)}</div>`; }); });
+  document.getElementById('corrMatrix').innerHTML = html + '</div>';
+}
+
+function renderRiskTable(students) {
+  if (!students.length) { document.getElementById('riskTable').innerHTML = '<div class="empty-state">Студентів у зоні ризику не виявлено</div>'; return; }
+  let html = `<table class="risk-table"><thead><tr><th>Студент</th><th>Відвідуваність</th><th>Ср. оцінка</th><th>Статус</th></tr></thead><tbody>`;
+  students.forEach(s => { html += `<tr><td><strong>${s.student_name}</strong></td><td>${s.attendance_rate}%</td><td>${s.avg_grade}</td><td><span class="risk-tag ${s.attendance_rate < 60 ? 'tag-red' : 'tag-yellow'}">${s.attendance_rate < 60 ? '🔴 Ризик' : '🟡 Стежити'}</span></td></tr>`; });
+  document.getElementById('riskTable').innerHTML = html + '</tbody></table>';
+}
+
+function renderReport(text) { document.getElementById('reportBox').textContent = text; }
+
+async function loadHistory() {
+  try {
+    const res = await fetch(`${API}/history`); const data = await res.json();
+    document.getElementById('historyList').innerHTML = data.history.reverse().map((h, i) => `<div class="history-item" onclick="loadEntry(${data.count - 1 - i})"><div class="ts">${h.timestamp}</div><div class="grade">Оцінка: <b>${h.overall.avg_grade}</b></div></div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function loadEntry(index) {
+  try {
+    const res = await fetch(`${API}/history/${index}`); const data = await res.json();
+    renderKPI(data.analytics.overall); renderCharts(data.analytics.weekly); renderCorrelation(data.analytics.correlations); renderRiskTable(data.analytics.at_risk_students); renderReport(data.ai_report); if (data.dynamics) renderDynamics(data.dynamics); switchTab('dashboard');
+  } catch(e) { console.error(e); }
+}
+
+/* Автоматичний старт парсингу оновлених демо-даних */
+workingDataset = parseCSV(defaultDemoData);
+</script>
+</body>
+</html>
